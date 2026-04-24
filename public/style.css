@@ -1,0 +1,112 @@
+body {
+  margin: 0;
+  font-family: Arial, sans-serif;
+  background: #0f172a;
+  color: white;
+}
+
+/* CENTER */
+.center {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+}
+
+/* CARD */
+.card {
+  background: #1e293b;
+  padding: 20px;
+  border-radius: 20px;
+  width: 90%;
+  max-width: 420px;
+  margin: auto;
+  box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+  animation: fadeIn 0.4s ease;
+}
+
+/* BUTTON */
+button {
+  margin: 8px;
+  padding: 12px;
+  width: 100%;
+  border-radius: 10px;
+  border: none;
+  font-weight: bold;
+}
+
+.btn-yes { background: #22c55e; }
+.btn-mid { background: #eab308; }
+.btn-no  { background: #ef4444; color:white; }
+
+/* GRID */
+.result-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.city-card {
+  background: #020617;
+  border-radius: 15px;
+  overflow: hidden;
+  border: 1px solid #334155;
+}
+
+.city-img {
+  width: 100%;
+  height: 150px;
+  object-fit: cover;
+}
+
+.city-content {
+  padding: 15px;
+}
+
+.bar {
+  height: 6px;
+  background: #334155;
+  margin-top: 10px;
+}
+
+.fill {
+  height: 100%;
+  background: #22c55e;
+}
+
+.badge {
+  display: inline-block;
+  margin: 3px;
+  padding: 4px 8px;
+  background: #38bdf8;
+  color: black;
+  border-radius: 10px;
+  font-size: 12px;
+}
+
+.map {
+  width: 100%;
+  height: 200px;
+  border: none;
+  margin-top: 10px;
+}
+
+/* ONBOARD */
+.start {
+  text-align: center;
+}
+
+.start h1 {
+  font-size: 26px;
+}
+
+.start button {
+  margin-top: 20px;
+  background: #38bdf8;
+}
+
+/* ANIM */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px);}
+  to { opacity: 1; transform: translateY(0);}
+}
