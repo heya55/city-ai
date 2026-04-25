@@ -2,59 +2,122 @@ import express from "express";
 import { cities } from "./cities.js";
 import { recommendTop3 } from "./engine/recommender.js";
 import { explain } from "./engine/explainer.js";
+import { generatePersonality } from "./engine/personality.js";
+import { aiComment } from "./engine/aiComment.js";
+import { createPlan } from "./engine/planner.js";
 
-const app = express();
+const app  = express();
+const PORT = process.env.PORT || 3000;
+
 app.use(express.json());
 app.use(express.static("public"));
 
-const PORT = process.env.PORT || 3000;
-
+// ── Akıllı 4 soru (frontend için) ─────────────────────
 const questions = [
-  { key:"doga", text:"Doğa ister misin?" },
-  { key:"eglence", text:"Eğlence önemli mi?" },
-  { key:"sakinlik", text:"Sakinlik arıyor musun?" },
-  { key:"kesif", text:"Keşif ister misin?" },
-  { key:"sosyal", text:"Sosyal ortam ister misin?" },
-  { key:"luks", text:"Lüks önemli mi?" }
+  {
+    id: 1,
+    text: "Seyahatte en çok ne arar, ne hissedersin?",
+    opts: [
+      { label: "Huzur ve dinginlik",  scores: { sakinlik: 4, doga: 2 } },
+      { label: "Macera ve keşif",     scores: { kesif: 4, doga: 2 } },
+      { label: "Eğlence ve sosyal",   scores: { eglence: 4, sosyal: 3 } },
+      { label: "Kültür ve tarih",     scores: { kesif: 3, luks: 1 } }
+    ]
+  },
+  {
+    id: 2,
+    text: "Hangi ortam seni daha çok çekiyor?",
+    opts: [
+      { label: "Dağ ve orman",   scores: { doga: 4, sakinlik: 3 } },
+      { label: "Deniz ve kıyı",  scores: { doga: 3, eglence: 2, luks: 1 } },
+      { label: "Tarihi şehir",   scores: { kesif: 4, sosyal: 2 } },
+      { label: "Hepsi olsun",    scores: { kesif: 2, doga: 2, eglence: 2 } }
+    ]
+  },
+  {
+    id: 3,
+    text: "Gecelerin nasıl geçsin?",
+    opts: [
+      { label: "Sessiz, yıldızlı gökyüzü", scores: { sakinlik: 4, doga: 3 } },
+      { label: "Canlı gece hayatı",         scores: { eglence: 4, sosyal: 3 } },
+      { label: "Yerel restoran ve çarşı",   scores: { sosyal: 3, kesif: 2 } },
+      { label: "Lüks otel konforu",         scores: { luks: 4, sakinlik: 2 } }
+    ]
+  },
+  {
+    id: 4,
+    text: "Seyahat tarzın nasıl?",
+    opts: [
+      { label: "Kısa, uygun bütçeli",  scores: { eglence: 2, kesif: 2 } },
+      { label: "Kısa, konforlu",        scores: { luks: 3, eglence: 2 } },
+      { label: "Uzun, keşif odaklı",    scores: { kesif: 4, doga: 2 } },
+      { label: "Uzun, tam lüks",        scores: { luks: 4, sosyal: 2 } }
+    ]
+  }
 ];
 
-const sessions = {};
-
-function newSession() {
-  return {
-    i:0,
-    profile:{doga:0,eglence:0,sakinlik:0,kesif:0,luks:0,sosyal:0}
-  };
-}
-
-app.post("/api/start",(req,res)=>{
-  const id = Date.now().toString();
-  sessions[id] = newSession();
-  res.json({sessionId:id, question:questions[0]});
+// ── GET /api/questions ─────────────────────────────────
+app.get("/api/questions", (req, res) => {
+  res.json(questions);
 });
 
-app.post("/api/answer/:id",(req,res)=>{
-  const s = sessions[req.params.id];
-  const q = questions[s.i];
+// ── POST /api/result ───────────────────────────────────
+// Body: { profile: { doga, eglence, sakinlik, kesif, luks, sosyal } }
+app.post("/api/result", (req, res) => {
+  const profile = req.body.profile;
+  if (!profile) return res.status(400).json({ error: "profile gerekli" });
 
-  s.profile[q.key]+=req.body.value;
-  s.i++;
-
-  if(s.i>=questions.length) return res.json({done:true});
-
-  res.json({next:questions[s.i]});
-});
-
-app.get("/api/result/:id",(req,res)=>{
-  const s = sessions[req.params.id];
-  const recs = recommendTop3(s.profile, cities);
+  const recs        = recommendTop3(profile, cities);
+  const reasons     = explain(profile, cities, recs.best.city);
+  const personality = generatePersonality(profile);
+  const comment     = aiComment(profile, recs.best.city);
+  const plan        = createPlan(recs.best.city);
 
   res.json({
-    best:recs.best,
-    second:recs.second,
-    surprise:recs.surprise,
-    reasons:explain(s.profile,cities,recs.best.city)
+    best:        recs.best,
+    second:      recs.second,
+    surprise:    recs.surprise,
+    reasons,
+    personality: personality.insight,
+    comment,
+    plan
   });
 });
 
-app.listen(PORT,()=>console.log("🚀 PROD READY:",PORT));
+// ── POST /api/ai-comment (Anthropic API ile zenginleştir) ──
+app.post("/api/ai-comment", async (req, res) => {
+  const { city, personality, profile } = req.body;
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+
+  if (!apiKey) {
+    return res.json({ comment: aiComment(profile || {}, city) });
+  }
+
+  try {
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type":      "application/json",
+        "x-api-key":         apiKey,
+        "anthropic-version": "2023-06-01"
+      },
+      body: JSON.stringify({
+        model:      "claude-sonnet-4-20250514",
+        max_tokens: 200,
+        system:     "Sen Türkiye'yi çok iyi bilen bir seyahat rehberisin. Kısa, samimi ve kişisel yaz. Maksimum 3 cümle. Türkçe.",
+        messages: [{
+          role:    "user",
+          content: `Kullanıcı kişiliği: ${personality}. Önerilen il: ${city}. Bu kişiye neden bu şehrin mükemmel olduğunu 3 cümleyle samimi anlat.`
+        }]
+      })
+    });
+    const data    = await response.json();
+    const comment = data.content?.map(i => i.text || "").join("") || aiComment({}, city);
+    res.json({ comment });
+  } catch (e) {
+    console.error("Anthropic API hatası:", e.message);
+    res.json({ comment: aiComment(profile || {}, city) });
+  }
+});
+
+app.listen(PORT, () => console.log(`🚀 City AI v3: http://localhost:${PORT}`));
