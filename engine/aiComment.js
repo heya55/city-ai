@@ -1,6 +1,8 @@
 export function aiComment(profile, city) {
-  const dominant = Object.entries(profile)
-    .sort((a, b) => b[1] - a[1])[0][0];
+  const entries = Object.entries(profile || {}).filter(([, v]) => typeof v === "number");
+  const dominant = entries.length
+    ? entries.sort((a, b) => (b[1] ?? 0) - (a[1] ?? 0))[0][0]
+    : "kesif";
 
   const map = {
     doga: "doğaya kaçmak isteyen",
@@ -11,5 +13,5 @@ export function aiComment(profile, city) {
     sosyal: "insanlarla iç içe olmayı seven"
   };
 
-  return `Sen ${map[dominant]} bir profilsin. ${city} bu yönünü besleyecek güçlü bir deneyim sunar.`;
+  return `Sen ${map[dominant] || "keşfetmeyi seven"} bir profilsin. ${city} bu yönünü besleyecek güçlü bir deneyim sunar.`;
 }

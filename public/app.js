@@ -28,10 +28,13 @@ function getPhotos(cityName) {
 }
 
 // ── State ──────────────────────────────────────────────
+let questionBank = null;
 let questions = [];
+let baseLen = 0;
+let appendedAdaptive = false;
 let currentQ  = 0;
 let answers   = {};
-let profile   = { doga: 0, eglence: 0, sakinlik: 0, kesif: 0, luks: 0, sosyal: 0 };
+let profile   = { doga: 0, eglence: 0, sakinlik: 0, kesif: 0, luks: 0, sosyal: 0, budget: 0, duration: 0, season: 0 };
 
 // ── Helpers ────────────────────────────────────────────
 function show(id) {
@@ -48,7 +51,7 @@ async function init() {
       <div class="card">
         <div class="app-logo">City AI</div>
         <h1>Sana en uygun Türkiye ili hangisi?</h1>
-        <p class="sub">4 akıllı soru ile profilini analiz edip 81 il arasından sana en uygun olanı buluyorum — sebepleriyle birlikte.</p>
+        <p class="sub">Adaptif sorularla profilini çıkarıp 81 il arasından sana en uygun olanı buluyorum — sebepleriyle birlikte.</p>
         <button class="btn primary" id="start-btn">Başla</button>
       </div>
     </div>
@@ -68,7 +71,7 @@ async function init() {
 
   try {
     const res = await fetch('/api/questions');
-    questions = await res.json();
+    questionBank = await res.json();
   } catch (e) {
     document.getElementById('s-start').querySelector('.card').innerHTML += `
       <div class="error-box" style="margin-top:1rem">Sunucuya bağlanılamadı. Lütfen sayfayı yenileyin.</div>
@@ -76,11 +79,63 @@ async function init() {
   }
 }
 
+function blankProfile() {
+  return { doga: 0, eglence: 0, sakinlik: 0, kesif: 0, luks: 0, sosyal: 0, budget: 0, duration: 0, season: 0 };
+}
+
+function applyScores(scores, sign = +1) {
+  if (!scores) return;
+  Object.entries(scores).forEach(([k, v]) => {
+    if (k in profile) profile[k] += (Number(v) || 0) * sign;
+  });
+}
+
+function getTopKeys(p, n = 2) {
+  const excluded = new Set(["budget", "duration", "season"]);
+  return Object.entries(p)
+    .filter(([k, v]) => !excluded.has(k) && typeof v === "number")
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, n)
+    .map(([k]) => k);
+}
+
+function recomputeProfile() {
+  profile = blankProfile();
+  for (let qi = 0; qi < questions.length; qi++) {
+    const sel = answers[qi];
+    if (sel === undefined) continue;
+    const scores = questions[qi]?.opts?.[sel]?.scores;
+    applyScores(scores, +1);
+  }
+}
+
+function maybeAppendAdaptiveQuestions() {
+  if (appendedAdaptive) return;
+  if (!questionBank?.categoryQuestions) return;
+
+  const tops = getTopKeys(profile, 2);
+  const extra = [];
+  for (const key of tops) {
+    const qlist = questionBank.categoryQuestions[key];
+    if (Array.isArray(qlist)) extra.push(...qlist);
+  }
+
+  if (extra.length) {
+    questions = questions.concat(extra);
+    appendedAdaptive = true;
+  }
+}
+
 // ── Quiz ───────────────────────────────────────────────
 function startQuiz() {
   currentQ = 0;
   answers  = {};
-  profile  = { doga: 0, eglence: 0, sakinlik: 0, kesif: 0, luks: 0, sosyal: 0 };
+  profile  = blankProfile();
+  appendedAdaptive = false;
+
+  baseLen = Array.isArray(questionBank?.baseQuestions) ? questionBank.baseQuestions.length : 0;
+  questions = Array.isArray(questionBank?.baseQuestions) ? questionBank.baseQuestions.slice() : [];
+
   renderQuestion();
   show('s-quiz');
 }
@@ -115,12 +170,16 @@ function renderQuestion() {
 function selectOpt(i) {
   answers[currentQ] = i;
   const scores = questions[currentQ].opts[i].scores;
-  Object.entries(scores).forEach(([k, v]) => { if (k in profile) profile[k] += v; });
+  applyScores(scores, +1);
 
   document.querySelectorAll('.opt-btn').forEach((b, idx) => b.classList.toggle('sel', idx === i));
 
   setTimeout(() => {
     currentQ++;
+    if (currentQ === baseLen) {
+      maybeAppendAdaptiveQuestions();
+    }
+
     if (currentQ >= questions.length) submitResult();
     else renderQuestion();
   }, 280);
@@ -131,10 +190,22 @@ function goBack() {
   const prevAns = answers[currentQ - 1];
   if (prevAns !== undefined) {
     const scores = questions[currentQ - 1].opts[prevAns].scores;
-    Object.entries(scores).forEach(([k, v]) => { if (k in profile) profile[k] -= v; });
+    applyScores(scores, -1);
     delete answers[currentQ - 1];
   }
   currentQ--;
+
+  // Eğer kullanıcı base sorulara geri döndüyse, adaptif ekleri temizle ve profili yeniden hesapla.
+  if (appendedAdaptive && currentQ < baseLen) {
+    questions = questions.slice(0, baseLen);
+    appendedAdaptive = false;
+    Object.keys(answers).forEach(k => {
+      const qi = Number(k);
+      if (Number.isFinite(qi) && qi >= baseLen) delete answers[qi];
+    });
+    recomputeProfile();
+  }
+
   renderQuestion();
 }
 
@@ -183,6 +254,14 @@ function renderResult(data) {
     </li>
   `).join('');
 
+  const districts = (data.itinerary?.districts || []).map(d => `<span class="pill">${d}</span>`).join('');
+  const routes = (data.itinerary?.routes || []).map(r => `
+    <div class="also-card" style="text-align:left">
+      <div class="also-label">${r.title || 'Rota'}</div>
+      <div class="also-score" style="margin-top:.25rem">${(r.stops || []).join(' • ')}</div>
+    </div>
+  `).join('');
+
   const photos = getPhotos(city);
   const photosHtml = photos.map(p => `
     <div class="photo-card">
@@ -214,6 +293,12 @@ function renderResult(data) {
       ${planItems ? `
         <div class="section-label">Örnek gezi planı</div>
         <ul class="plan-list">${planItems}</ul>
+      ` : ''}
+
+      ${(districts || routes) ? `
+        <div class="section-label">İlçeler / Rotalar</div>
+        ${districts ? `<div class="pill-row" style="display:flex;flex-wrap:wrap;gap:.5rem;margin:.25rem 0 1rem">${districts}</div>` : ''}
+        ${routes ? `<div class="also-grid">${routes}</div>` : ''}
       ` : ''}
 
       <div class="section-label">Öne çıkan destinasyonlar</div>
