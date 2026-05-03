@@ -7,6 +7,7 @@ import { aiComment } from "./engine/aiComment.js";
 import { createPlan } from "./engine/planner.js";
 import { getItinerary } from "./engine/itinerary.js";
 import { normalizedStyleProfile } from "./engine/normalizeProfile.js";
+import { districtSuggestionsFor } from "./engine/districtSuggestions.js";
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
@@ -222,6 +223,11 @@ app.get("/api/questions", (req, res) => {
   });
 });
 
+app.get("/api/provinces", (req, res) => {
+  const provinces = Object.keys(cities).sort((a, b) => a.localeCompare(b, "tr"));
+  res.json({ provinces });
+});
+
 // ── POST /api/result ───────────────────────────────────
 // Body: { profile: { doga, eglence, sakinlik, kesif, luks, sosyal } }
 app.post("/api/result", (req, res) => {
@@ -230,16 +236,43 @@ app.post("/api/result", (req, res) => {
 
   const recs        = recommendTop3(profile, cities);
   const reasons     = explain(profile, cities, recs.best.city);
+  const reasonsSecond = explain(profile, cities, recs.second.city);
+  const reasonsSurprise = explain(profile, cities, recs.surprise.city);
   const personality = generatePersonality(profile);
   const comment     = aiComment(profile, recs.best.city);
   const plan        = createPlan(recs.best.city);
   const itinerary   = getItinerary(recs.best.city);
+
+  const districtsBest = districtSuggestionsFor(profile, recs.best.city);
+  const districtsSecond = districtSuggestionsFor(profile, recs.second.city);
+  const districtsSurprise = districtSuggestionsFor(profile, recs.surprise.city);
+
+  const rawPref = req.body.preferredProvince;
+  const preferredProvince =
+    typeof rawPref === "string" && rawPref.trim() && cities[rawPref.trim()]
+      ? rawPref.trim()
+      : null;
+
+  let districtsPreferred = null;
+  let reasonsPreferred = null;
+  if (preferredProvince) {
+    districtsPreferred = districtSuggestionsFor(profile, preferredProvince);
+    reasonsPreferred = explain(profile, cities, preferredProvince);
+  }
 
   res.json({
     best:        recs.best,
     second:      recs.second,
     surprise:    recs.surprise,
     reasons,
+    reasonsSecond,
+    reasonsSurprise,
+    districtsBest,
+    districtsSecond,
+    districtsSurprise,
+    preferredProvince,
+    districtsPreferred,
+    reasonsPreferred,
     personality: personality.insight,
     comment,
     plan,
