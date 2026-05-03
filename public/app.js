@@ -27,6 +27,32 @@ function getPhotos(cityName) {
   return cityPhotos[cityName] || cityPhotos["default"];
 }
 
+function escapeAttr(s) {
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;");
+}
+
+/** Deterministic görsel (picsum). source.unsplash.com çoğu yerde artık çalışmıyor. */
+function photoSeedKey(cityName, p) {
+  const raw = `${cityName}\0${p.label}\0${p.q}`;
+  let h = 2166136261;
+  for (let i = 0; i < raw.length; i++) {
+    h ^= raw.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return "ca" + (h >>> 0).toString(36);
+}
+
+function photoUrls(cityName, p) {
+  const seed = photoSeedKey(cityName, p);
+  return {
+    primary: `https://picsum.photos/seed/${seed}/400/280`,
+    fallback: `https://placehold.co/400x280/e8efe9/085041/png?font=montserrat&text=${encodeURIComponent(p.label)}`
+  };
+}
+
 // ── State ──────────────────────────────────────────────
 let questionBank = null;
 let questions = [];
@@ -263,16 +289,20 @@ function renderResult(data) {
   `).join('');
 
   const photos = getPhotos(city);
-  const photosHtml = photos.map(p => `
+  const photosHtml = photos.map(p => {
+    const { primary, fallback } = photoUrls(city, p);
+    return `
     <div class="photo-card">
       <img class="photo-img"
-        src="https://source.unsplash.com/400x280/?${encodeURIComponent(p.q)}"
-        alt="${p.label}"
-        onerror="this.style.minHeight='60px';this.style.background='#f0f0ee';"
-        loading="lazy"/>
+        src="${escapeAttr(primary)}"
+        alt="${escapeAttr(p.label)}"
+        data-fallback="${escapeAttr(fallback)}"
+        loading="lazy"
+        decoding="async"
+        onerror="this.onerror=null;this.src=this.dataset.fallback"/>
       <div class="photo-label">${p.label}</div>
-    </div>
-  `).join('');
+    </div>`;
+  }).join('');
 
   el('s-result').innerHTML = `
     <div class="card">
