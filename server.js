@@ -6,6 +6,7 @@ import { generatePersonality } from "./engine/personality.js";
 import { aiComment } from "./engine/aiComment.js";
 import { createPlan } from "./engine/planner.js";
 import { getItinerary } from "./engine/itinerary.js";
+import { normalizedStyleProfile } from "./engine/normalizeProfile.js";
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
@@ -265,11 +266,19 @@ app.post("/api/ai-comment", async (req, res) => {
       },
       body: JSON.stringify({
         model:      "claude-sonnet-4-20250514",
-        max_tokens: 200,
-        system:     "Sen Türkiye'yi çok iyi bilen bir seyahat rehberisin. Kısa, samimi ve kişisel yaz. Maksimum 3 cümle. Türkçe.",
+        max_tokens: 720,
+        system:
+          "Sen Türkiye seyahatinde uzmanlaşmış bir rehbersin. Türkçe yaz. Üslup samimi ama bilgilendirici olsun. " +
+          "Yanıt yaklaşık 900–1400 karakter aralığında olsun (3–5 kısa paragraf). " +
+          "Şunları mutlaka ele al: (1) kullanıcı profili ve şehir uyumu (2) şehirde somut aktivite/lokasyon örnekleri (gerçekçi ve genel, uydurma detay verme) (3) kimler için çok uygun / kimler için daha az uygun olabileceği (4) küçük pratik öneriler (tempo, kalabalık, ulaşım gibi genel). " +
+          "Abartılı garantiler verme; tek seçenekmiş gibi konuşma.",
         messages: [{
           role:    "user",
-          content: `Kullanıcı kişiliği: ${personality}. Önerilen il: ${city}. Bu kişiye neden bu şehrin mükemmel olduğunu 3 cümleyle samimi anlat.`
+          content:
+            `Kişilik özeti:\n${personality}\n\n` +
+            `Önerilen il: ${city}\n\n` +
+            `Normalize edilmiş seyahat eksenleri (0–10, quiz skorlarından türetilmiş):\n${JSON.stringify(normalizedStyleProfile(profile || {}))}\n\n` +
+            `Bu kullanıcı için bu ili önermenin mantığını detaylıca anlat; gerektiğinde küçük başlıklar kullanabilirsin ama emoji kullanmak zorunda değilsin.`
         }]
       })
     });

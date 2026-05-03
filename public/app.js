@@ -34,15 +34,67 @@ function escapeAttr(s) {
     .replace(/</g, "&lt;");
 }
 
-/** Deterministic görsel (picsum). source.unsplash.com çoğu yerde artık çalışmıyor. */
-function photoSeedKey(cityName, p) {
-  const raw = `${cityName}\0${p.label}\0${p.q}`;
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function hashSeed(parts) {
+  const raw = parts.join("\0");
   let h = 2166136261;
   for (let i = 0; i < raw.length; i++) {
     h ^= raw.charCodeAt(i);
     h = Math.imul(h, 16777619);
   }
   return "ca" + (h >>> 0).toString(36);
+}
+
+/** Deterministic görsel (picsum). source.unsplash.com çoğu yerde artık çalışmıyor. */
+function photoSeedKey(cityName, p) {
+  return hashSeed([cityName, p.label, p.q]);
+}
+
+function quizHeroUrl(q) {
+  const seed = hashSeed(["hero", q.id || "", q.text]);
+  return `https://picsum.photos/seed/${seed}/720/340`;
+}
+
+function quizThumbUrl(q, optIndex, label) {
+  const seed = hashSeed(["thumb", q.id || "", String(optIndex), label]);
+  return `https://picsum.photos/seed/${seed}/280/200`;
+}
+
+function quizBackdropUrl(q) {
+  const seed = hashSeed(["backdrop", q.id || "", q.text]);
+  return `https://picsum.photos/seed/${seed}/1600/1000`;
+}
+
+function applyQuizBackdrop(q) {
+  const url = quizBackdropUrl(q);
+  document.documentElement.style.setProperty("--quiz-backdrop-url", `url("${url}")`);
+  document.body.classList.add("quiz-mode");
+}
+
+function clearQuizVisuals() {
+  document.body.classList.remove("quiz-mode");
+  document.documentElement.style.removeProperty("--quiz-backdrop-url");
+}
+
+function prefetchNextQuizImages() {
+  const next = questions[currentQ + 1];
+  if (!next) return;
+  const urls = [
+    quizHeroUrl(next),
+    quizBackdropUrl(next),
+    ...next.opts.map((o, i) => quizThumbUrl(next, i, o.label))
+  ];
+  urls.forEach(src => {
+    const im = new Image();
+    im.decoding = "async";
+    im.src = src;
+  });
 }
 
 function photoUrls(cityName, p) {
@@ -103,6 +155,8 @@ async function init() {
       <div class="error-box" style="margin-top:1rem">Sunucuya bağlanılamadı. Lütfen sayfayı yenileyin.</div>
     `;
   }
+
+  clearQuizVisuals();
 }
 
 function blankProfile() {
@@ -168,29 +222,54 @@ function startQuiz() {
 
 function renderQuestion() {
   const q   = questions[currentQ];
+  applyQuizBackdrop(q);
+
   const pct = Math.round(((currentQ + 1) / questions.length) * 100);
   const sel = answers[currentQ] ?? null;
 
-  const opts = q.opts.map((o, i) => `
-    <button class="opt-btn${sel === i ? ' sel' : ''}" onclick="selectOpt(${i})">
-      <div class="opt-key">${String.fromCharCode(65 + i)}</div>
-      <div class="opt-text">${o.label}</div>
-    </button>
-  `).join('');
+  const heroSrc = quizHeroUrl(q);
+  const heroFb  = `https://placehold.co/720x340/e8efe9/085041/png?font=montserrat&text=${encodeURIComponent("City AI")}`;
+
+  const opts = q.opts.map((o, i) => {
+    const thumbSrc = quizThumbUrl(q, i, o.label);
+    const thumbFb  = `https://placehold.co/280x200/e8efe9/085041/png?font=montserrat&text=${encodeURIComponent(String.fromCharCode(65 + i))}`;
+    return `
+    <button type="button" class="opt-btn opt-btn-visual${sel === i ? ' sel' : ''}" onclick="selectOpt(${i})">
+      <div class="opt-thumb-wrap">
+        <img class="opt-thumb" src="${escapeAttr(thumbSrc)}" alt="" decoding="async" loading="eager"
+          data-fallback="${escapeAttr(thumbFb)}"
+          onerror="this.onerror=null;this.src=this.dataset.fallback"/>
+      </div>
+      <div class="opt-body">
+        <div class="opt-key">${String.fromCharCode(65 + i)}</div>
+        <div class="opt-text">${escapeHtml(o.label)}</div>
+      </div>
+    </button>`;
+  }).join('');
 
   el('s-quiz').innerHTML = `
-    <div class="card">
-      <div class="prog-wrap">
-        <div class="prog-label">${currentQ + 1} / ${questions.length}</div>
-        <div class="prog-bar"><div class="prog-fill" style="width:${pct}%"></div></div>
+    <div class="card quiz-card">
+      <div class="quiz-hero">
+        <img src="${escapeAttr(heroSrc)}" alt="" decoding="async" loading="eager"
+          data-fallback="${escapeAttr(heroFb)}"
+          onerror="this.onerror=null;this.src=this.dataset.fallback"/>
+        <div class="quiz-hero-scrim"></div>
       </div>
-      <div class="question">${q.text}</div>
-      <div class="opt-grid">${opts}</div>
-      <div class="nav-row">
-        ${currentQ > 0 ? '<button class="btn" onclick="goBack()">← Geri</button>' : ''}
+      <div class="quiz-card-body">
+        <div class="prog-wrap">
+          <div class="prog-label">${currentQ + 1} / ${questions.length}</div>
+          <div class="prog-bar"><div class="prog-fill" style="width:${pct}%"></div></div>
+        </div>
+        <div class="question">${escapeHtml(q.text)}</div>
+        <div class="opt-grid opt-grid-visual">${opts}</div>
+        <div class="nav-row">
+          ${currentQ > 0 ? '<button class="btn" onclick="goBack()">← Geri</button>' : ''}
+        </div>
       </div>
     </div>
   `;
+
+  prefetchNextQuizImages();
 }
 
 function selectOpt(i) {
@@ -237,6 +316,7 @@ function goBack() {
 
 // ── Submit → backend engine ────────────────────────────
 async function submitResult() {
+  clearQuizVisuals();
   show('s-loading');
   const msgs = ["Profilin analiz ediliyor...", "81 il karşılaştırılıyor...", "En iyi eşleşme bulunuyor..."];
   let mi = 0;
@@ -264,27 +344,29 @@ async function submitResult() {
 
 // ── Result ─────────────────────────────────────────────
 function renderResult(data) {
+  clearQuizVisuals();
+
   const city    = data.best.city;
   const score   = Math.round(data.best.score * 100);
   const reasons = (data.reasons || []).map(r => `
     <div class="reason-item">
       <div class="reason-dot"></div>
-      <div class="reason-text">${r.replace(/^✔\s*/, '')}</div>
+      <div class="reason-text">${escapeHtml(r.replace(/^[✔•]\s*/, ''))}</div>
     </div>
   `).join('') || '<div class="reason-text" style="color:#aaa">Profil analizi tamamlandı.</div>';
 
   const planItems = (data.plan || []).map((p, i) => `
     <li class="plan-item">
       <span class="plan-day">Gün ${i + 1}</span>
-      <span>${p.replace(/^Gün \d+:\s*/, '')}</span>
+      <span>${escapeHtml(p.replace(/^Gün \d+:\s*/, ''))}</span>
     </li>
   `).join('');
 
-  const districts = (data.itinerary?.districts || []).map(d => `<span class="pill">${d}</span>`).join('');
+  const districts = (data.itinerary?.districts || []).map(d => `<span class="pill">${escapeHtml(d)}</span>`).join('');
   const routes = (data.itinerary?.routes || []).map(r => `
     <div class="also-card" style="text-align:left">
-      <div class="also-label">${r.title || 'Rota'}</div>
-      <div class="also-score" style="margin-top:.25rem">${(r.stops || []).join(' • ')}</div>
+      <div class="also-label">${escapeHtml(r.title || 'Rota')}</div>
+      <div class="also-score" style="margin-top:.25rem">${(r.stops || []).map(s => escapeHtml(s)).join(' • ')}</div>
     </div>
   `).join('');
 
@@ -300,17 +382,17 @@ function renderResult(data) {
         loading="lazy"
         decoding="async"
         onerror="this.onerror=null;this.src=this.dataset.fallback"/>
-      <div class="photo-label">${p.label}</div>
+      <div class="photo-label">${escapeHtml(p.label)}</div>
     </div>`;
   }).join('');
 
   el('s-result').innerHTML = `
     <div class="card">
       <span class="match-badge">En iyi eşleşme</span>
-      <div class="city-name">${city}</div>
+      <div class="city-name">${escapeHtml(city)}</div>
       <div class="city-score">Uyum skoru: ${score}%</div>
 
-      <div class="personality-box" id="r-personality">${(data.personality || '').trim()}</div>
+      <div class="personality-box" id="r-personality">${escapeHtml((data.personality || '').trim())}</div>
 
       <div class="section-label">Neden bu il?</div>
       ${reasons}
@@ -338,12 +420,12 @@ function renderResult(data) {
       <div class="also-grid">
         <div class="also-card">
           <div class="also-label">İyi seçenek</div>
-          <div class="also-city">${data.second?.city || '—'}</div>
+          <div class="also-city">${escapeHtml(data.second?.city || '—')}</div>
           <div class="also-score">${Math.round((data.second?.score || 0) * 100)}% uyum</div>
         </div>
         <div class="also-card">
           <div class="also-label">Sürpriz öneri</div>
-          <div class="also-city">${data.surprise?.city || '—'}</div>
+          <div class="also-city">${escapeHtml(data.surprise?.city || '—')}</div>
           <div class="also-score">${Math.round((data.surprise?.score || 0) * 100)}% uyum</div>
         </div>
       </div>
