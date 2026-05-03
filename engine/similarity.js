@@ -1,10 +1,18 @@
+import { normalizedStyleProfile, STYLE_KEYS } from "./normalizeProfile.js";
+
+/**
+ * Kosinüs benzerliği — sadece seyahat eksenleri (şehir verisiyle aynı boyut).
+ * Kullanıcı vektörü normalize edilir; böylece birikimli quiz skorları şehir 0–10 ölçeğiyle daha tutarlı kıyaslanır.
+ */
 export function similarity(user, city) {
+  const uvec = normalizedStyleProfile(user || {});
+
   let dot = 0;
   let magA = 0;
   let magB = 0;
 
-  for (const key in user) {
-    const u = user[key] || 0;
+  for (const key of STYLE_KEYS) {
+    const u = uvec[key] || 0;
     const c = city[key] || 0;
 
     dot += u * c;

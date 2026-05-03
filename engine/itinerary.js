@@ -1,6 +1,6 @@
 const itineraries = {
   "İstanbul": {
-    districts: ["Sultanahmet", "Karaköy", "Galata", "Balat", "Kadıköy", "Beşiktaş", "Ortaköy"],
+    districts: ["Fatih", "Beyoğlu", "Kadıköy", "Beşiktaş"],
     routes: [
       { title: "Tarihi Yarımada", stops: ["Ayasofya", "Topkapı", "Sultanahmet Meydanı", "Kapalıçarşı"] },
       { title: "Boğaz Hattı", stops: ["Beşiktaş", "Ortaköy", "Bebek", "Emirgan"] },
@@ -8,34 +8,34 @@ const itineraries = {
     ]
   },
   "Antalya": {
-    districts: ["Kaleiçi", "Konyaaltı", "Lara", "Kaş", "Kemer", "Side"],
+    districts: ["Muratpaşa", "Konyaaltı", "Alanya", "Kaş"],
     routes: [
-      { title: "Şehir + Sahil", stops: ["Kaleiçi", "Yat Limanı", "Konyaaltı", "Düden Şelalesi"] },
+      { title: "Şehir + Sahil", stops: ["Muratpaşa – Kaleiçi çevresi", "Konyaaltı", "Düden Şelalesi"] },
       { title: "Tarihi Rota", stops: ["Aspendos", "Perge", "Side Antik Kenti"] }
     ]
   },
   "İzmir": {
-    districts: ["Konak", "Kordon", "Alsancak", "Alaçatı", "Çeşme", "Seferihisar"],
+    districts: ["Konak", "Karşıyaka", "Çeşme", "Buca"],
     routes: [
       { title: "Merkez Rota", stops: ["Kordon", "Saat Kulesi", "Kemeraltı"] },
       { title: "Ege Kaçamağı", stops: ["Alaçatı", "Çeşme", "Ilıca"] }
     ]
   },
   "Muğla": {
-    districts: ["Bodrum", "Fethiye", "Marmaris", "Datça", "Akyaka"],
+    districts: ["Bodrum", "Fethiye", "Marmaris", "Datça"],
     routes: [
       { title: "Koylar + Deniz", stops: ["Ölüdeniz", "Kelebekler Vadisi", "Saklıkent"] },
       { title: "Bodrum Günleri", stops: ["Bodrum Kalesi", "Marina", "Gümüşlük"] }
     ]
   },
   "Trabzon": {
-    districts: ["Ortahisar", "Uzungöl", "Maçka", "Sürmene"],
+    districts: ["Ortahisar", "Maçka", "Çaykara", "Akçaabat"],
     routes: [
       { title: "Klasik Trabzon", stops: ["Sümela", "Maçka", "Uzungöl"] }
     ]
   },
   "Rize": {
-    districts: ["Ayder", "Çamlıhemşin", "Fırtına Vadisi", "Çayeli"],
+    districts: ["Çamlıhemşin", "Rize", "Ardeşen", "Çayeli"],
     routes: [
       { title: "Yayla + Şelale", stops: ["Ayder", "Fırtına Vadisi", "Zil Kale"] }
     ]

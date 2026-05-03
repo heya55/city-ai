@@ -6,6 +6,7 @@ const cityPhotos = {
   "Rize":           [{label:"Ayder Yaylası",q:"Ayder Plateau Rize green"},{label:"Kaçkar",q:"Kackar Mountains trekking"},{label:"Şelale",q:"Rize waterfall green valley"},{label:"Çay bahçeleri",q:"Rize tea garden Black Sea"}],
   "Trabzon":        [{label:"Sümela",q:"Sumela Monastery Trabzon cliff"},{label:"Uzungöl",q:"Uzungol lake mountains"},{label:"Boztepe",q:"Boztepe Trabzon Black Sea view"},{label:"Atatürk Köşkü",q:"Trabzon Ataturk Kosku"}],
   "Kapadokya":      [{label:"Peri Bacaları",q:"Cappadocia fairy chimneys"},{label:"Balon",q:"Cappadocia hot air balloon sunrise"},{label:"Ihlara",q:"Ihlara Valley green canyon"},{label:"Yeraltı Şehri",q:"Derinkuyu underground city"}],
+  "Nevşehir":       [{label:"Peri Bacaları",q:"Cappadocia fairy chimneys"},{label:"Balon",q:"Cappadocia hot air balloon sunrise"},{label:"Ihlara",q:"Ihlara Valley green canyon"},{label:"Yeraltı Şehri",q:"Derinkuyu underground city"}],
   "İzmir":          [{label:"Kordon",q:"Izmir Kordon waterfront promenade"},{label:"Efes",q:"Ephesus ancient ruins"},{label:"Alaçatı",q:"Alacati stone streets windmill"},{label:"Kemeraltı",q:"Kemeralti Bazaar Izmir"}],
   "Şanlıurfa":      [{label:"Göbeklitepe",q:"Gobeklitepe archaeological site"},{label:"Balıklıgöl",q:"Balikligol Urfa fish pool"},{label:"Harran",q:"Harran beehive houses Urfa"},{label:"Urfa Çarşısı",q:"Sanliurfa bazaar historic"}],
   "Artvin":         [{label:"Seytan Kalesi",q:"Artvin Seytan Kalesi canyon"},{label:"Savsat",q:"Savsat Artvin green mountains"},{label:"Borcka",q:"Borcka lake Artvin"},{label:"Macahel",q:"Macahel Artvin forest"}],
@@ -113,6 +114,7 @@ let appendedAdaptive = false;
 let currentQ  = 0;
 let answers   = {};
 let profile   = { doga: 0, eglence: 0, sakinlik: 0, kesif: 0, luks: 0, sosyal: 0, budget: 0, duration: 0, season: 0 };
+let preferredProvince = null;
 
 // ── Helpers ────────────────────────────────────────────
 function show(id) {
@@ -123,13 +125,62 @@ function show(id) {
 function el(id) { return document.getElementById(id); }
 
 // ── Start ──────────────────────────────────────────────
+function photoGridHtml(cityName) {
+  return getPhotos(cityName).map(p => {
+    const { primary, fallback } = photoUrls(cityName, p);
+    return `
+    <div class="photo-card">
+      <img class="photo-img"
+        src="${escapeAttr(primary)}"
+        alt="${escapeAttr(p.label)}"
+        data-fallback="${escapeAttr(fallback)}"
+        loading="lazy"
+        decoding="async"
+        onerror="this.onerror=null;this.src=this.dataset.fallback"/>
+      <div class="photo-label">${escapeHtml(p.label)}</div>
+    </div>`;
+  }).join('');
+}
+
 async function init() {
+  let prefOpts = '<option value="">Merak ettiğim / düşündüğüm bir il yok</option>';
+  questionBank = null;
+
+  const [qRes, pRes] = await Promise.all([
+    fetch('/api/questions').catch(() => null),
+    fetch('/api/provinces').catch(() => null)
+  ]);
+
+  if (qRes?.ok) {
+    try {
+      questionBank = await qRes.json();
+    } catch {
+      questionBank = null;
+    }
+  }
+
+  if (pRes?.ok) {
+    try {
+      const pData = await pRes.json();
+      const list = Array.isArray(pData.provinces) ? pData.provinces : [];
+      prefOpts =
+        '<option value="">Merak ettiğim / düşündüğüm bir il yok</option>' +
+        list.map(p => `<option value="${escapeAttr(p)}">${escapeHtml(p)}</option>`).join('');
+    } catch {
+      /* keep prefOpts */
+    }
+  }
+
   document.getElementById('app').innerHTML = `
     <div id="s-start" class="screen active">
       <div class="card">
         <div class="app-logo">City AI</div>
         <h1>Sana en uygun Türkiye ili hangisi?</h1>
         <p class="sub">Adaptif sorularla profilini çıkarıp 81 il arasından sana en uygun olanı buluyorum — sebepleriyle birlikte.</p>
+        <div class="pref-wrap">
+          <label class="pref-label" for="pref-province">İsteğe bağlı: özellikle merak ettiğin bir il</label>
+          <select id="pref-province" class="pref-select">${prefOpts}</select>
+        </div>
         <button class="btn primary" id="start-btn">Başla</button>
       </div>
     </div>
@@ -147,10 +198,7 @@ async function init() {
 
   document.getElementById('start-btn').onclick = startQuiz;
 
-  try {
-    const res = await fetch('/api/questions');
-    questionBank = await res.json();
-  } catch (e) {
+  if (!questionBank?.baseQuestions) {
     document.getElementById('s-start').querySelector('.card').innerHTML += `
       <div class="error-box" style="margin-top:1rem">Sunucuya bağlanılamadı. Lütfen sayfayı yenileyin.</div>
     `;
@@ -208,6 +256,9 @@ function maybeAppendAdaptiveQuestions() {
 
 // ── Quiz ───────────────────────────────────────────────
 function startQuiz() {
+  const prefEl = document.getElementById('pref-province');
+  preferredProvince = (prefEl?.value || '').trim() || null;
+
   currentQ = 0;
   answers  = {};
   profile  = blankProfile();
@@ -326,7 +377,10 @@ async function submitResult() {
     const res  = await fetch('/api/result', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ profile })
+      body: JSON.stringify({
+        profile,
+        ...(preferredProvince ? { preferredProvince } : {})
+      })
     });
     const data = await res.json();
     clearInterval(iv);
@@ -342,18 +396,62 @@ async function submitResult() {
   }
 }
 
+// ── Result helpers ─────────────────────────────────────
+function formatReasonList(rawList, emptyText = 'Profil analizi tamamlandı.') {
+  const inner = (rawList || []).map(r => `
+    <div class="reason-item">
+      <div class="reason-dot"></div>
+      <div class="reason-text">${escapeHtml(r.replace(/^[✔•]\s*/, ''))}</div>
+    </div>
+  `).join('');
+  return inner || `<div class="reason-text" style="color:#aaa">${escapeHtml(emptyText)}</div>`;
+}
+
+function renderDistrictBlock(title, items) {
+  if (!items?.length) return '';
+  const cards = items.map(d => {
+    const src = `https://picsum.photos/seed/${encodeURIComponent(d.visualSeed)}/320/200`;
+    const fb  = `https://placehold.co/320x200/e8efe9/085041/png?font=montserrat&text=${encodeURIComponent(d.ilce)}`;
+    return `
+    <div class="dist-card">
+      <img class="dist-img"
+        src="${escapeAttr(src)}"
+        alt="${escapeAttr(d.ilce)}"
+        loading="lazy"
+        decoding="async"
+        data-fallback="${escapeAttr(fb)}"
+        onerror="this.onerror=null;this.src=this.dataset.fallback"/>
+      <div class="dist-body">
+        <div class="dist-name">${escapeHtml(d.ilce)}</div>
+        <div class="dist-reason">${escapeHtml(d.reason)}</div>
+      </div>
+    </div>`;
+  }).join('');
+  return `
+    <div class="section-label">${escapeHtml(title)}</div>
+    <div class="dist-grid">${cards}</div>`;
+}
+
+function renderAltProvinceBlock(label, rec, reasonArr, distArr) {
+  if (!rec?.city) return '';
+  const pct = Math.round((rec.score || 0) * 100);
+  const rs    = formatReasonList(reasonArr, 'Bu il için özet gerekçeler hazır.');
+  const title = `${label} — önerilen ilçeler (${rec.city})`;
+  return `
+    <div class="divider"></div>
+    <div class="alt-province-head">${escapeHtml(label)} · ${escapeHtml(rec.city)} · ${pct}% uyum</div>
+    <div class="section-label">Neden bu il?</div>
+    ${rs}
+    ${renderDistrictBlock(title, distArr)}`;
+}
+
 // ── Result ─────────────────────────────────────────────
 function renderResult(data) {
   clearQuizVisuals();
 
   const city    = data.best.city;
   const score   = Math.round(data.best.score * 100);
-  const reasons = (data.reasons || []).map(r => `
-    <div class="reason-item">
-      <div class="reason-dot"></div>
-      <div class="reason-text">${escapeHtml(r.replace(/^[✔•]\s*/, ''))}</div>
-    </div>
-  `).join('') || '<div class="reason-text" style="color:#aaa">Profil analizi tamamlandı.</div>';
+  const reasons = formatReasonList(data.reasons);
 
   const planItems = (data.plan || []).map((p, i) => `
     <li class="plan-item">
@@ -362,7 +460,6 @@ function renderResult(data) {
     </li>
   `).join('');
 
-  const districts = (data.itinerary?.districts || []).map(d => `<span class="pill">${escapeHtml(d)}</span>`).join('');
   const routes = (data.itinerary?.routes || []).map(r => `
     <div class="also-card" style="text-align:left">
       <div class="also-label">${escapeHtml(r.title || 'Rota')}</div>
@@ -370,21 +467,24 @@ function renderResult(data) {
     </div>
   `).join('');
 
-  const photos = getPhotos(city);
-  const photosHtml = photos.map(p => {
-    const { primary, fallback } = photoUrls(city, p);
-    return `
-    <div class="photo-card">
-      <img class="photo-img"
-        src="${escapeAttr(primary)}"
-        alt="${escapeAttr(p.label)}"
-        data-fallback="${escapeAttr(fallback)}"
-        loading="lazy"
-        decoding="async"
-        onerror="this.onerror=null;this.src=this.dataset.fallback"/>
-      <div class="photo-label">${escapeHtml(p.label)}</div>
-    </div>`;
-  }).join('');
+  const distBest = renderDistrictBlock('Öne çıkan ilçeler — en iyi eşleşme', data.districtsBest);
+
+  const photosHtml = photoGridHtml(city);
+
+  const pref = data.preferredProvince;
+  const prefBlock = pref
+      ? `
+      <div class="divider"></div>
+      <div class="section-label">Merak ettiğin / seçtiğin il</div>
+      <div class="city-name" style="font-size:22px;margin-bottom:.15rem">${escapeHtml(pref)}</div>
+      ${pref === city ? '<div class="pref-note">Bu il, en iyi eşleşmenle aynı.</div>' : ''}
+      <div class="section-label">Neden bu il?</div>
+      ${formatReasonList(data.reasonsPreferred || [], 'Bu il için özet gerekçeler hazır.')}
+      ${renderDistrictBlock(`Öne çıkan ilçeler — ${pref}`, data.districtsPreferred || [])}
+      <div class="section-label">Öne çıkan destinasyonlar (il)</div>
+      <div class="photo-grid">${photoGridHtml(pref)}</div>
+    `
+      : '';
 
   el('s-result').innerHTML = `
     <div class="card">
@@ -397,6 +497,10 @@ function renderResult(data) {
       <div class="section-label">Neden bu il?</div>
       ${reasons}
 
+      ${distBest}
+
+      ${prefBlock}
+
       <div class="divider"></div>
 
       <div class="section-label">Kişisel yorum</div>
@@ -407,13 +511,12 @@ function renderResult(data) {
         <ul class="plan-list">${planItems}</ul>
       ` : ''}
 
-      ${(districts || routes) ? `
-        <div class="section-label">İlçeler / Rotalar</div>
-        ${districts ? `<div class="pill-row" style="display:flex;flex-wrap:wrap;gap:.5rem;margin:.25rem 0 1rem">${districts}</div>` : ''}
-        ${routes ? `<div class="also-grid">${routes}</div>` : ''}
+      ${routes ? `
+        <div class="section-label">Örnek rotalar</div>
+        <div class="also-grid">${routes}</div>
       ` : ''}
 
-      <div class="section-label">Öne çıkan destinasyonlar</div>
+      <div class="section-label">Öne çıkan destinasyonlar (il)</div>
       <div class="photo-grid">${photosHtml}</div>
 
       <div class="section-label">Ayrıca değerlendir</div>
@@ -429,6 +532,9 @@ function renderResult(data) {
           <div class="also-score">${Math.round((data.surprise?.score || 0) * 100)}% uyum</div>
         </div>
       </div>
+
+      ${renderAltProvinceBlock('İyi seçenek', data.second, data.reasonsSecond, data.districtsSecond)}
+      ${renderAltProvinceBlock('Sürpriz öneri', data.surprise, data.reasonsSurprise, data.districtsSurprise)}
 
       <div class="bottom-btns">
         <button class="btn" onclick="startQuiz()">Tekrar dene</button>
