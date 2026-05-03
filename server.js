@@ -5,6 +5,7 @@ import { explain } from "./engine/explainer.js";
 import { generatePersonality } from "./engine/personality.js";
 import { aiComment } from "./engine/aiComment.js";
 import { createPlan } from "./engine/planner.js";
+import { getItinerary } from "./engine/itinerary.js";
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
@@ -12,53 +13,212 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json());
 app.use(express.static("public"));
 
-// ── Akıllı 4 soru (frontend için) ─────────────────────
-const questions = [
+// ── Soru bankası (frontend adaptif akış kurar) ──────────
+// Format: { id, text, opts: [{ label, scores }] }
+const baseQuestions = [
   {
-    id: 1,
-    text: "Seyahatte en çok ne arar, ne hissedersin?",
+    id: "goal",
+    text: "Bu seyahatte en çok ne arıyorsun?",
     opts: [
-      { label: "Huzur ve dinginlik",  scores: { sakinlik: 4, doga: 2 } },
-      { label: "Macera ve keşif",     scores: { kesif: 4, doga: 2 } },
-      { label: "Eğlence ve sosyal",   scores: { eglence: 4, sosyal: 3 } },
-      { label: "Kültür ve tarih",     scores: { kesif: 3, luks: 1 } }
+      { label: "Huzur ve dinginlik", scores: { sakinlik: 4, doga: 2 } },
+      { label: "Macera ve keşif", scores: { kesif: 4, doga: 2 } },
+      { label: "Eğlence ve sosyal ortam", scores: { eglence: 4, sosyal: 3 } },
+      { label: "Kültür, tarih ve şehir gezisi", scores: { kesif: 3, sosyal: 2 } }
     ]
   },
   {
-    id: 2,
+    id: "environment",
     text: "Hangi ortam seni daha çok çekiyor?",
     opts: [
-      { label: "Dağ ve orman",   scores: { doga: 4, sakinlik: 3 } },
-      { label: "Deniz ve kıyı",  scores: { doga: 3, eglence: 2, luks: 1 } },
-      { label: "Tarihi şehir",   scores: { kesif: 4, sosyal: 2 } },
-      { label: "Hepsi olsun",    scores: { kesif: 2, doga: 2, eglence: 2 } }
+      { label: "Dağ, orman, yayla", scores: { doga: 4, sakinlik: 2 } },
+      { label: "Deniz, kıyı, sahil", scores: { doga: 3, eglence: 2 } },
+      { label: "Tarihi/otantik şehir", scores: { kesif: 4, sosyal: 1 } },
+      { label: "Karışık olsun (hepsi)", scores: { kesif: 2, doga: 2, eglence: 1 } }
     ]
   },
   {
-    id: 3,
-    text: "Gecelerin nasıl geçsin?",
+    id: "nights",
+    text: "Akşamlar nasıl geçsin?",
     opts: [
-      { label: "Sessiz, yıldızlı gökyüzü", scores: { sakinlik: 4, doga: 3 } },
-      { label: "Canlı gece hayatı",         scores: { eglence: 4, sosyal: 3 } },
-      { label: "Yerel restoran ve çarşı",   scores: { sosyal: 3, kesif: 2 } },
-      { label: "Lüks otel konforu",         scores: { luks: 4, sakinlik: 2 } }
+      { label: "Sakin, kafa dinlemelik", scores: { sakinlik: 4 } },
+      { label: "Canlı gece hayatı", scores: { eglence: 4, sosyal: 2 } },
+      { label: "Yerel restoran/çarşı", scores: { sosyal: 3, kesif: 2 } },
+      { label: "Konforlu otel/SPA", scores: { luks: 4, sakinlik: 1 } }
     ]
   },
   {
-    id: 4,
-    text: "Seyahat tarzın nasıl?",
+    id: "duration",
+    text: "Kaç gün ayırmayı düşünüyorsun?",
     opts: [
-      { label: "Kısa, uygun bütçeli",  scores: { eglence: 2, kesif: 2 } },
-      { label: "Kısa, konforlu",        scores: { luks: 3, eglence: 2 } },
-      { label: "Uzun, keşif odaklı",    scores: { kesif: 4, doga: 2 } },
-      { label: "Uzun, tam lüks",        scores: { luks: 4, sosyal: 2 } }
+      { label: "1–2 gün (kaçamak)", scores: { duration: 1 } },
+      { label: "3–4 gün (mini tatil)", scores: { duration: 2 } },
+      { label: "5–7 gün (tam tatil)", scores: { duration: 3 } },
+      { label: "8+ gün (uzun gezi)", scores: { duration: 4 } }
+    ]
+  },
+  {
+    id: "budget",
+    text: "Bütçe yaklaşımın ne?",
+    opts: [
+      { label: "Ekonomik", scores: { budget: 1 } },
+      { label: "Dengeli", scores: { budget: 2 } },
+      { label: "Rahat", scores: { budget: 3 } },
+      { label: "Lüks", scores: { budget: 4, luks: 2 } }
+    ]
+  },
+  {
+    id: "withWho",
+    text: "Kiminle gidiyorsun?",
+    opts: [
+      { label: "Tek başıma", scores: { kesif: 2 } },
+      { label: "Partner/çift", scores: { sakinlik: 1, luks: 1 } },
+      { label: "Arkadaş grubu", scores: { eglence: 2, sosyal: 2 } },
+      { label: "Aile", scores: { sakinlik: 2, sosyal: 1 } }
+    ]
+  },
+  {
+    id: "season",
+    text: "Hangi dönemde gitmek istiyorsun?",
+    opts: [
+      { label: "İlkbahar", scores: { season: 2, kesif: 1 } },
+      { label: "Yaz", scores: { season: 3, doga: 1, eglence: 1 } },
+      { label: "Sonbahar", scores: { season: 2, sakinlik: 1 } },
+      { label: "Kış", scores: { season: 1, sakinlik: 1 } }
     ]
   }
 ];
 
+const categoryQuestions = {
+  doga: [
+    {
+      id: "doga_1",
+      text: "Doğada en çok hangisi seni mutlu eder?",
+      opts: [
+        { label: "Yürüyüş/trekking rotaları", scores: { doga: 3, kesif: 2 } },
+        { label: "Göl/yayla manzarası", scores: { doga: 3, sakinlik: 2 } },
+        { label: "Deniz + doğa birlikte", scores: { doga: 2, eglence: 1 } },
+        { label: "Kamp/çadır deneyimi", scores: { doga: 4 } }
+      ]
+    },
+    {
+      id: "doga_2",
+      text: "Zorluk seviyesi nasıl olsun?",
+      opts: [
+        { label: "Rahat ve kolay", scores: { sakinlik: 2, doga: 1 } },
+        { label: "Orta seviye", scores: { doga: 2, kesif: 1 } },
+        { label: "Zorlayıcı/ekstrem", scores: { doga: 3, kesif: 2 } }
+      ]
+    }
+  ],
+  eglence: [
+    {
+      id: "eglence_1",
+      text: "Eğlencede hangisi daha senlik?",
+      opts: [
+        { label: "Barlar/klüpler", scores: { eglence: 4, sosyal: 2 } },
+        { label: "Konser/festival", scores: { eglence: 3, sosyal: 2 } },
+        { label: "Sokak lezzetleri + kalabalık", scores: { sosyal: 3, eglence: 2 } },
+        { label: "Gündüz aktivite, akşam sakin", scores: { eglence: 2, sakinlik: 2 } }
+      ]
+    },
+    {
+      id: "eglence_2",
+      text: "Kalabalıkla aran nasıl?",
+      opts: [
+        { label: "Severim, enerji verir", scores: { sosyal: 3, eglence: 1 } },
+        { label: "Bazen iyi", scores: { sosyal: 1 } },
+        { label: "Yorar, uzak dururum", scores: { sakinlik: 3 } }
+      ]
+    }
+  ],
+  sakinlik: [
+    {
+      id: "sakinlik_1",
+      text: "Sakinlik deyince aklına ne geliyor?",
+      opts: [
+        { label: "Sessiz doğa", scores: { sakinlik: 4, doga: 2 } },
+        { label: "Az kalabalık sahil", scores: { sakinlik: 3, doga: 1 } },
+        { label: "Küçük şehir huzuru", scores: { sakinlik: 4 } }
+      ]
+    },
+    {
+      id: "sakinlik_2",
+      text: "Ritmin nasıl olsun?",
+      opts: [
+        { label: "Yavaş ve plansız", scores: { sakinlik: 3 } },
+        { label: "Dengeli", scores: { sakinlik: 2, kesif: 1 } },
+        { label: "Çok gezeyim ama sakin kalsın", scores: { kesif: 2, sakinlik: 2 } }
+      ]
+    }
+  ],
+  kesif: [
+    {
+      id: "kesif_1",
+      text: "Keşifte hangisi daha çekici?",
+      opts: [
+        { label: "Tarih ve müzeler", scores: { kesif: 4 } },
+        { label: "Yeni sokaklar/mahalleler", scores: { kesif: 3, sosyal: 1 } },
+        { label: "Doğa + keşif", scores: { kesif: 2, doga: 2 } }
+      ]
+    },
+    {
+      id: "kesif_2",
+      text: "Gezi stilin?",
+      opts: [
+        { label: "Planlı rota", scores: { kesif: 3 } },
+        { label: "Spontane", scores: { eglence: 2, kesif: 1 } },
+        { label: "Karışık", scores: { kesif: 2 } }
+      ]
+    }
+  ],
+  luks: [
+    {
+      id: "luks_1",
+      text: "Konforda en çok ne önemli?",
+      opts: [
+        { label: "İyi otel + kahvaltı", scores: { luks: 4 } },
+        { label: "Spa/termal", scores: { luks: 3, sakinlik: 1 } },
+        { label: "Fine dining", scores: { luks: 3, sosyal: 1 } }
+      ]
+    },
+    {
+      id: "luks_2",
+      text: "Ulaşım/konfor tercihi?",
+      opts: [
+        { label: "Yakın ve rahat ulaşım", scores: { luks: 2 } },
+        { label: "Fark etmez, deneyim önemli", scores: { kesif: 1 } }
+      ]
+    }
+  ],
+  sosyal: [
+    {
+      id: "sosyal_1",
+      text: "Sosyal olarak ne istersin?",
+      opts: [
+        { label: "Yeni insanlarla tanışmak", scores: { sosyal: 4 } },
+        { label: "Mekanlar ve etkinlikler", scores: { sosyal: 3, eglence: 2 } },
+        { label: "Yerel kültürle karışmak", scores: { sosyal: 2, kesif: 2 } }
+      ]
+    },
+    {
+      id: "sosyal_2",
+      text: "Tempo?",
+      opts: [
+        { label: "Sürekli hareket", scores: { sosyal: 2, eglence: 2 } },
+        { label: "Dengeli", scores: { sosyal: 1 } },
+        { label: "Sakin sosyal (kafe/gezinti)", scores: { sosyal: 1, sakinlik: 2 } }
+      ]
+    }
+  ]
+};
+
 // ── GET /api/questions ─────────────────────────────────
 app.get("/api/questions", (req, res) => {
-  res.json(questions);
+  res.json({
+    version: 2,
+    baseQuestions,
+    categoryQuestions
+  });
 });
 
 // ── POST /api/result ───────────────────────────────────
@@ -72,6 +232,7 @@ app.post("/api/result", (req, res) => {
   const personality = generatePersonality(profile);
   const comment     = aiComment(profile, recs.best.city);
   const plan        = createPlan(recs.best.city);
+  const itinerary   = getItinerary(recs.best.city);
 
   res.json({
     best:        recs.best,
@@ -80,7 +241,8 @@ app.post("/api/result", (req, res) => {
     reasons,
     personality: personality.insight,
     comment,
-    plan
+    plan,
+    itinerary
   });
 });
 
